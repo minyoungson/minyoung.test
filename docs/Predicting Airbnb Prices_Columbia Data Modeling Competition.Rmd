@@ -1,0 +1,778 @@
+---
+title: "5200_Kaggle Report"
+author: "MinYoung Son"
+date: "4/27/2022"
+output:
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: true
+      smooth_scroll: false
+      number_sections: true
+---
+
+```{r, setup, include=FALSE}
+knitr::opts_knit$set(root.dir = '/Users/minyoungson/Documents/MinYoung/R_MinYoung')
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+```
+# 01. Data Exploration 
+
+```{r}
+data = read.csv('analysisData.csv')
+scoring = read.csv('scoringData.csv')
+```
+
+Before embarking on the project, I looked into the what types of variables the data has so that I can plan out the proper data pre-processing. The analysis dataset contained 91 columns of different types of variables. First I skimmed through the each column to see what types of information they have and to plan what type of data tidying was needed. <br>
+Please find the below functions that I used to explore the data. <br>
+<br>
+**✔️Summary** : To check data type <br>
+**✔️STR**: To check what each variable contains <br>
+**✔️Skim** <br>
+(1) Differentiate which variables are numeric and character <br>
+(2) Which variables are missing and not complete <br>
+
+
+```{r, eval = FALSE}
+dim(data)
+names(data)
+summary(data)
+str(data)
+head(data)
+skim(data)
+
+# Square_feet, weekly_price, monthly_price, security_deposit and cleaning_fee were missing lot of values while host_listings_count, host_total_listings_count, beds and reviews_per_month were missing few values 
+
+```
+
+# 02. Data Preprocessing
+
+Before pre-processing and cleaning the data, I decided to remove some of the columns that contains only N/A values or some repetitive column names. I first focused on the columns containing relatively simple variables. (Will later discuss how I pre-processed the text containing columns) <br>
+<br>
+For variables with large missing data like security deposit I used mice to generate the missing data. For other variables like host response rate and host acceptance rate with N/A value, I have used median to fill in those N/A value.
+
+Variables that have character type of data instead of numeric like host_is_super_host I assigned value of 1 for t and 0 for f to assign numeric value so that it will be easier to create a model and can be recognized. For variable like last_review I have converted string to date. Lastly, I done same steps for all the scoring data and used **colSums(is.na(data))** to make sure there are not missing value.
+
+
+## Converting Data Types and Replacing N/As 
+
+```{r, eval = FALSE}
+#host response rate
+data$host_response_rate[data$host_response_rate == "N/A"] <- NA
+data$host_response_rate = as.numeric(sub("%", "",data$host_response_rate,fixed=TRUE))/100
+data$host_response_rate[is.na(data$host_response_rate)] <- median(data$host_response_rate,na.rm = TRUE)
+sum(is.na(data$host_response_rate))
+data$host_response_rate
+
+# host_response_time
+data$host_response_time[data$host_response_time == "N/A"] <- NA
+
+#host_is_super_host
+data$host_is_superhost <- ifelse(data$host_is_superhost == "t",1,0)
+data$host_is_superhost=as.factor(data$host_is_superhost)
+
+#host_has_profile_pic
+data$host_has_profile_pic <- ifelse(data$host_has_profile_pic == "t",1,0)
+data$host_has_profile_pic=as.factor(data$host_has_profile_pic)
+
+#host_identity_verified
+data$host_identity_verified <- ifelse(data$host_identity_verified == "t",1,0)
+data$host_identity_verified=as.factor(data$host_identity_verified)
+
+# change is_location_exact to numeric binary
+data$is_location_exact <- ifelse(data$is_location_exact == "t",1,0)
+
+# change require_guest_profile_picture to numeric binary
+data$require_guest_profile_picture <- ifelse(data$require_guest_profile_picture == "t",1,0)
+
+# change require_guest_profile_picture to numeric binary
+data$require_guest_phone_verification <- ifelse(data$require_guest_phone_verification == "t",1,0)
+
+#guest_included no change as all values are there, nothing missing
+#extra people no change as it has all the values
+
+```
+
+## Imputing Missing & Outlier Values 
+- I used histogram, boxplot and table function to analyze the data to see the outliers <br>
+- Replacing the missing columns with N/A values Median <br>
+- For variables with large missing data like security deposit I used mice function to generate the missing data. <br>
+
+
+```{r}
+#cleaning_fee
+data$cleaning_fee[data$cleaning_fee == "N/A"] <- NA
+cleaning_fee = is.na(data$cleaning_fee)
+data[cleaning_fee, 'cleaning_fee'] = median(data$cleaning_fee,na.rm = T)
+
+#BEDS
+data$beds[is.na(data$beds)] <- mean(data$beds, na.rm =TRUE)
+
+#minimum_nights
+boxplot(data$minimum_nights)
+minimum_nights_outlier = (data$minimum_nights>400)
+data[minimum_nights_outlier, 'minimum_nights'] = median(data$minimum_nights,na.rm = T)
+
+#maximum_nights
+boxplot(data$maximum_nights)
+maximum_nights_outlier = (data$maximum_nights>1125)
+data[maximum_nights_outlier, 'maximum_nights'] = median(data$maximum_nights,na.rm = T)
+
+#number_of_reviews
+hist(data$number_of_reviews)
+boxplot(data$number_of_reviews)
+number_of_reviews_outlier = (data$number_of_reviews>300)
+data[number_of_reviews_outlier, 'number_of_reviews'] = median(data$number_of_reviews,na.rm = T)
+
+#replace NAs with median date - Analysis Data
+last_review_NAs = is.na(data$last_review)
+data[last_review_NAs, 'last_review'] = median(data$last_review,na.rm = T)
+
+#replace NAs with median date - Analysis Data
+host_since_NAs = is.na(data$host_since)
+data[host_since_NAs, 'host_since'] = median(data$host_since,na.rm = T)
+
+#replace NAs with median date - Analysis Data
+first_review_NAs = is.na(data$first_review)
+data[first_review_NAs, 'first_review'] = median(data$first_review,na.rm = T)
+
+#instant bookable
+data$instant_bookable <- ifelse(data$instant_bookable == "t",1,0)
+```
+
+```{r, eval=FALSE}
+# Security Tax - using "Mice" Function 
+library(mice)
+data = mice::complete(mice(data,seed = 617))
+```
+
+
+## Converting String to Date  
+
+For variables which contains the date, I used string to date function and calculated the accumulated days.
+
+```{r, eval = FALSE}
+#last_review
+#convert from string to date - Analysis Data
+data$last_review = as.Date(data$last_review)
+
+#calculate the # of days from today to last review
+data$days_since_last_review = as.integer(Sys.Date() - data$last_review)
+
+#host_since
+#convert from string to date - Analysis Data
+data$host_since = as.Date(data$host_since)
+
+#calculate the # of days from today to last review
+data$days_since_host_since = as.integer(Sys.Date() - data$host_since)
+
+#first_review
+#convert from string to date - Analysis Data
+data$first_review = as.Date(data$first_review)
+
+#calculate the # of days from today to last review
+data$days_since_first_review = as.integer(Sys.Date() - data$first_review)
+```
+
+## Checking Missing Values
+
+As a last step of pre-processing the data, I applied the same steps for the scoring data. I used colSums function to check whether they have any missing values.
+
+```{r, eval=FALSE}
+#check any missing value
+colSums(is.na(data))
+```
+
+
+# 03. Text Mining 
+
+For other variables that contains customers review and a lots of texts, I decided to apply some text mining skills to find out which words are used frequently in the reviews. <br>
+<br>
+For text mining, I used **library(tm)** function to clean out the unnecessary texts and extract the most-used words from the texts. 
+<br>
+Also, when analyzing the amenities column, I sorted out the price in descending orders from the analysisData and extracted the top words.
+
+## Extracting Top20 Words from Reviews
+
+Applied the below text-mining codes to the following variables; <br>
+- name <br>
+- summary <br>
+- neighborhood_overview <br>
+- notes <br>
+- transit <br>
+- access <br>
+- interaction <br>
+- house_rules <br>
+- amenities <br>
+
+For the variables - space & description, the errors was keep appearing so couldn't extract the values. <br> This will be later discussed as the limitations of the analysis. 
+
+
+```{r, message=FALSE}
+library(tm)
+### TEXT CLEANING - Summary Variable
+
+summary <- Corpus(VectorSource(data$summary))
+summary <- tm_map(summary, removePunctuation)
+summary <- tm_map(summary, content_transformer(tolower))
+summary <- tm_map(summary, removeNumbers)
+summary <- tm_map(summary, stripWhitespace)
+summary <- tm_map(summary, removeWords, stopwords('english'))
+
+# Build a term-document matrix
+TextDoc_dtm <- TermDocumentMatrix(summary)
+dtm_m <- as.matrix(TextDoc_dtm)
+# Sort by descending value of frequency
+dtm_v <- sort(rowSums(dtm_m),decreasing=TRUE)
+dtm_d <- data.frame(word = names(dtm_v),freq=dtm_v)
+
+# TOP20 WORDS EXTRACTION_ Display the most frequent words
+head(dtm_d, 20)
+
+
+
+### TEXT CLEANING - Name Variable
+
+name <- Corpus(VectorSource(data$name))
+name <- tm_map(name, removePunctuation)
+name <- tm_map(name, content_transformer(tolower))
+name <- tm_map(name, removeNumbers)
+name <- tm_map(name, stripWhitespace)
+name <- tm_map(name, removeWords, stopwords('english'))
+
+# Build a term-document matrix
+TextDoc_dtm <- TermDocumentMatrix(name)
+dtm_m <- as.matrix(TextDoc_dtm)
+# Sort by descending value of frequency
+dtm_v <- sort(rowSums(dtm_m),decreasing=TRUE)
+dtm_d <- data.frame(word = names(dtm_v),freq=dtm_v)
+
+# TOP20 WORDS EXTRACTION_ Display the most frequent words
+head(dtm_d, 20)
+
+
+## Applied the same code to the following variables:
+# neighborhood_overview, notes, transit, access, interaction, house_rules, amenities
+
+```
+
+# 04. Creating New Variables 
+
+Based on the top 20 words extracted from the text-minings, I sorted out some of the words that looks most relevant to the house pricing. As I was not able to extract the words from the Description and Space variable, I did some researches that would most affect on the house pricing.
+<br>
+
+**New Variables by Bourough**
+```{r, eval=FALSE}
+# Neighborhood 
+
+data = data %>%
+  mutate(Bronx_dum = ifelse(neighbourhood_group_cleansed == "Bronx", 1, 0))
+data = data %>%
+  mutate(Brooklyn_dum = ifelse(neighbourhood_group_cleansed == "Brooklyn", 1, 0))
+data = data %>%
+  mutate(Manhattan_dum = ifelse(neighbourhood_group_cleansed == "Manhattan", 1, 0))
+data = data %>%
+  mutate(Queens_dum = ifelse(neighbourhood_group_cleansed == "Queens", 1, 0))
+data = data %>%
+  mutate(StatenIsland_dum = ifelse(neighbourhood_group_cleansed == "Staten Island", 1, 0))
+
+```
+
+**New Variables by Words Extracted from Text-mining**
+
+```{r, eval = FALSE}
+## SUMMARY: manhattan, restaurants, located, park, walk, kitchen, subway, train
+
+## Summary_manhattan
+summary_manhattan <- grep(pattern = "manhattan", x = tolower(data$summary))
+data$summary_manhattan = 0
+data$summary_manhattan[summary_manhattan] = 1
+
+## Summary_restaurants
+summary_restaurants <- grep(pattern = "restaurants", x = tolower(data$summary))
+data$summary_restaurants = 0
+data$summary_restaurants[summary_restaurants] = 1
+
+
+## Summary_located
+summary_located <- grep(pattern = "located", x = tolower(data$summary))
+data$summary_located = 0
+data$summary_located[summary_located] = 1
+
+## Summary_park
+summary_park <- grep(pattern = "park", x = tolower(data$summary))
+data$summary_park = 0
+data$summary_park[summary_park] = 1
+
+## Summary_walk
+summary_walk <- grep(pattern = "walk", x = tolower(data$summary))
+data$summary_walk = 0
+data$summary_walk[summary_walk] = 1
+
+## Summary_kitchen
+summary_kitchen <- grep(pattern = "kitchen", x = tolower(data$summary))
+data$summary_kitchen = 0
+data$summary_kitchen[summary_kitchen] = 1
+
+
+## Summary_subway
+summary_subway <- grep(pattern = "subway", x = tolower(data$summary))
+data$summary_subway = 0
+data$summary_subway[summary_subway] = 1
+
+## Summary_train
+summary_train <- grep(pattern = "train", x = tolower(data$summary))
+data$summary_train = 0
+data$summary_train[summary_train] = 1
+
+
+### NAME Word Frequency – cozy, studio, spacious, park, sunny, williamsburg, beautiful
+
+## Name_cozy
+summary_cozy <- grep(pattern = "cozy", x = tolower(data$name))
+data$Name_cozy = 0
+data$Name_cozy[summary_cozy] = 1
+
+## Name_studio
+summary_studio <- grep(pattern = "studio", x = tolower(data$name))
+data$Name_studio = 0
+data$Name_studio[summary_studio] = 1
+
+## Name_spacious
+summary_spacious <- grep(pattern = "spacious", x = tolower(data$name))
+data$Name_spacious = 0
+data$Name_spacious[summary_spacious] = 1
+
+## Name_park
+summary_park <- grep(pattern = "park", x = tolower(data$name))
+data$Name_park = 0
+data$Name_park[summary_park] = 1
+
+## Name_sunny
+summary_sunny <- grep(pattern = "sunny", x = tolower(data$name))
+data$Name_sunny = 0
+data$Name_sunny[summary_sunny] = 1
+
+## Name_williamsburg
+summary_williamsburg <- grep(pattern = "williamsburg", x = tolower(data$name))
+data$Name_williamsburg = 0
+data$Name_williamsburg[summary_williamsburg] = 1
+
+## Name_beautiful
+summary_beautiful <- grep(pattern = "beautiful", x = tolower(data$name))
+data$Name_beautiful = 0
+data$Name_beautiful[summary_beautiful] = 1
+
+
+
+#### TRANSIT - train, walk, subway, station, 
+## Transit_train
+transit_train <- grep(pattern = "train", x = tolower(data$transit))
+data$Transit_train = 0
+data$Transit_train[transit_train] = 1
+
+## Transit_walk
+transit_walk <- grep(pattern = "walk", x = tolower(data$transit))
+data$Transit_walk = 0
+data$Transit_walk[transit_walk] = 1
+
+## Transit_subway
+transit_subway <- grep(pattern = "subway", x = tolower(data$transit))
+data$Transit_subway = 0
+data$Transit_subway[transit_subway] = 1
+
+## Transit_station
+transit_station <- grep(pattern = "station", x = tolower(data$transit))
+data$Transit_station = 0
+data$Transit_station[transit_station] = 1
+
+
+##### amenities - detector, conditioning, carbon, dryer, laptop, workspace, parking, kitchen, heating
+
+## Amenities_detector
+amenities_detector <- grep(pattern = "detector", x = tolower(data$amenities))
+data$Amenities_detector = 0
+data$Amenities_detector[amenities_detector] = 1
+
+## Amenities_conditioning
+amenities_conditioning <- grep(pattern = "conditioning", x = tolower(data$amenities))
+data$Amenities_conditioning = 0
+data$Amenities_conditioning[amenities_conditioning] = 1
+
+## Amenities_carbon
+amenities_carbon <- grep(pattern = "carbon", x = tolower(data$amenities))
+data$Amenities_carbon = 0
+data$Amenities_carbon[amenities_carbon] = 1
+
+## Amenities_laptop
+amenities_laptop <- grep(pattern = "laptop", x = tolower(data$amenities))
+data$Amenities_laptop = 0
+data$Amenities_laptop[amenities_laptop] = 1
+
+
+## Amenities_workspace
+amenities_workspace <- grep(pattern = "workspace", x = tolower(data$amenities))
+data$Amenities_workspace = 0
+data$Amenities_workspace[amenities_workspace] = 1
+
+
+## Amenities_parking
+amenities_parking <- grep(pattern = "parking", x = tolower(data$amenities))
+data$Amenities_parking = 0
+data$Amenities_parking[amenities_parking] = 1
+
+
+## Amenities_kitchen
+amenities_kitchen <- grep(pattern = "kitchen", x = tolower(data$amenities))
+data$Amenities_kitchen = 0
+data$Amenities_kitchen[amenities_kitchen] = 1
+
+## Amenities_heating
+amenities_heating <- grep(pattern = "heating", x = tolower(data$amenities))
+data$Amenities_heating = 0
+data$Amenities_heating[amenities_heating] = 1
+
+
+## Description_space
+desc_space <- grep(pattern = "space", x = tolower(data_original$description))
+data$desc_space = 0
+data$desc_space[desc_space] = 1
+
+
+## Description_penthouse
+desc_penthouse <- grep(pattern = "penthouse", x = tolower(data_original$description))
+data$desc_penthouse = 0
+data$desc_penthouse[desc_penthouse] = 1
+
+
+## Description_new
+desc_new <- grep(pattern = "new", x = tolower(data_original$description))
+data$desc_new = 0
+data$desc_new[desc_new] = 1
+
+
+# desc_located
+## Description_located
+desc_located <- grep(pattern = "located", x = tolower(data_original$description))
+data$desc_located = 0
+data$desc_located[desc_located] = 1
+
+
+# desc_manhattan
+## Description_manhattan
+desc_manhattan <- grep(pattern = "manhattan", x = tolower(data_original$description))
+data$desc_manhattan = 0
+data$desc_manhattan[desc_manhattan] = 1
+
+# desc_central
+## Description_central
+desc_central <- grep(pattern = "central", x = tolower(data_original$description))
+data$desc_central = 0
+data$desc_central[desc_central] = 1
+
+
+# desc_heart
+## Description_heart
+desc_heart <- grep(pattern = "heart", x = tolower(data_original$description))
+data$desc_heart = 0
+data$desc_heart[desc_heart] = 1
+
+
+# desc_large
+## Description_large
+desc_large <- grep(pattern = "large", x = tolower(data_original$description))
+data$desc_large = 0
+data$desc_large[desc_large] = 1
+
+
+# desc_spacious
+## Description_spacious
+desc_spacious <- grep(pattern = "spacious", x = tolower(data_original$description))
+data$desc_spacious = 0
+data$desc_spacious[desc_spacious] = 1
+
+################### Applied the same code to Scoring Data ########################
+
+```
+
+## Create Mean Price by Neighborhood 
+
+As a second step of adding variables that would have major impact on the house pricing, I calculated the mean value of the housing price from the analysisData. I used two different variables here; **neighbourhood_cleasned & neighbourhood_group_cleasned**. 
+
+```{r, eval = FALSE}
+## Create a data frame to use the neighbourhood_cleansed
+data1 = data %>%
+  group_by(neighbourhood_cleansed = neighbourhood_cleansed) %>%
+  summarize(record_count_c = n(),     ## count every level's record
+            price_mean_c = mean(price)) %>%  ## calculate each group's mean price
+  arrange(desc(record_count_c))
+
+## merge the data frame and get the mean price and record counts
+data = merge(data, data1, by = c("neighbourhood_cleansed", "neighbourhood_cleansed"))
+class(data$neighbourhood_cleansed)
+data$neighbourhood_cleansed = as.factor(data$neighbourhood_cleansed)
+
+### scoring
+## create a data frame to use the neighbourhood_cleansed
+scoring1 = scoring %>%
+  group_by(neighbourhood_cleansed = neighbourhood_cleansed) %>%
+  summarize(record_count_c = n()) %>%
+  arrange(desc(record_count_c))
+
+## merge the data frame and get the mean price and record counts
+scoring = merge(scoring, scoring1, by = c("neighbourhood_cleansed", "neighbourhood_cleansed"))
+
+scoring$neighbourhood_cleansed = as.character(scoring$neighbourhood_cleansed)
+
+## create price_mean_c for score_data 
+data2 = data.frame(neighbourhood_cleansed = data1$neighbourhood_cleansed,
+                   price_mean_c = data1$price_mean_c)
+
+scoring = merge(scoring, data2, by = c("neighbourhood_cleansed", "neighbourhood_cleansed"), all.x = TRUE) 
+### remember to use all.x = TRUE here to keep scoring as a whole
+
+## check the missing value
+sum(is.na(scoring$price_mean_c))
+sum(is.na(data$price_mean_c))
+
+scoring$neighbourhood_cleansed = as.factor(scoring$neighbourhood_cleansed)
+
+
+### data 
+## create a data frame to use the mean price of neighbourhood_group_cleansed
+data3 = data %>%
+  group_by(neighbourhood_group_cleasned = neighbourhood_group_cleasned) %>%
+  summarize(price_mean_gc = mean(price))
+
+## merge the data frame and get the mean price
+data = merge(data, data3, by = c("neighbourhood_group_cleasned", "neighbourhood_group_cleasned"))
+
+
+### scoring 
+## merge the data frame and get the mean price and record counts
+scoring = merge(scoring, data3, by = c("neighbourhood_group_cleasned", "neighbourhood_group_cleasned"), all.x = TRUE)
+
+## check missing value
+sum(is.na(scoring$price_mean_gc)) ## there is no NA
+```
+
+
+## Create Mean Price by Zipcode 
+
+After trying the first model with the neighborhood group mean value, I had seen a noticeable improvement in RMSE score. Thus, I further developed the mean price by zipcodes. 
+
+```{r, eval = FALSE}
+# Cleaning Zipcode
+data <- data %>% 
+mutate(zipcode = parse_number(zipcode, trim_ws = TRUE)) %>%
+  mutate_at("zipcode", str_replace, "1009", "10009")
+  
+
+scoring <- scoring %>% 
+  mutate(zipcode = parse_number(zipcode)) %>% 
+  mutate_at("zipcode", str_replace, "1009", "10009")
+
+data$zipcode = as.factor(data$zipcode)
+scoring$zipcode = as.factor(scoring$zipcode)
+
+sum(is.na(scoring$zipcode))
+sum(is.na(data$zipcode))
+
+
+# Creating Group Mean Value
+
+### data
+## create a data frame to use the zipcode
+data1 = data %>%
+  group_by(zipcode = zipcode) %>%
+  summarize(record_count_zip = n(),     ## count every level's record
+            price_mean_zip = mean(price)) %>%  ## calculate each group's mean price
+  arrange(desc(record_count_zip))
+
+## merge the data frame and get the mean price and record counts
+data = merge(data, data1, by = c("zipcode", "zipcode"))
+data$zipcode = as.character(data$zipcode)
+
+### scoring
+## create a data frame to use the neighbourhood_cleansed
+scoring1 = scoring %>%
+  group_by(zipcode = zipcode) %>%
+  summarize(record_count_zip = n()) %>%
+  arrange(desc(record_count_zip))
+
+## merge the data frame and get the mean price and record counts
+scoring = merge(scoring, scoring1, by = c("zipcode", "zipcode"))
+scoring$zipcode = as.character(scoring$zipcode)
+
+
+## create price_mean_c for score_data 
+data2 = data.frame(zipcode = data1$zipcode,
+                   price_mean_zip = data1$price_mean_zip)
+
+scoring = merge(scoring, data2, by = c("zipcode", "zipcode"), all.x = TRUE) 
+### remember to use all.x = TRUE here to keep scoring as a whole
+
+
+price_mean_zip = is.na(data$price_mean_zip)
+data[price_mean_zip, 'price_mean_zip'] = mean(data$price_mean_zip,na.rm = T)
+
+price_mean_zip = is.na(scoring$price_mean_zip)
+scoring[price_mean_zip, 'price_mean_zip'] = mean(scoring$price_mean_zip,na.rm = T)
+
+## check the missing value
+sum(is.na(scoring$price_mean_zip))
+sum(is.na(data$price_mean_zip))
+```
+
+
+# 05. Feature Selection & Building Models
+
+**(1) Hybrid Stepwise Feature Selection** <br>
+After cleaning the data and creating all the variables as above, I ran Hybrid feature selection model to figure out what variables have the major impact on the hour pricing. I opted to run Hybrid Stepwise model because the model best combines the strength of both Forward & Backward feature selection models. <br>
+After looking at the stepwise selection, I created another data set with only important variables that impacted the price of the Airbnb. 
+<br>
+**(2) Linear Regression** <br>
+First, I created linear regression model to find out which variables are effective in predicting the Airbnb price. However, in terms of the predicting the values, the linear regression was not an effective model because it only creates the simple OLS line. I needed more accurate prediction models. 
+<br>
+**(3) Advanced Tree - Random Forest** <br>
+For the next step, I decided to create random forest model. Instead of using the decision tree, I decided to directly use the random forest models because decision tree carris high risk of data overfitting. Even though the overfitting can be solved with putting some tree controls, I thought the advanced tree models still carry better predictions with tuning tree hyperparameters, and ensemble models such as forests.
+<br>
+**(4) Boosting - XG Boost** <br>
+The Last model I applied was boosting models. The RMSE and the score significantly improve due to the complexity of the data set and the interaction between variables. I build boosting with XGBoost which significantly improved the results of the predictions due to derive predictions from number of trees.
+<br>
+<br>
+
+**(1) Feature Selections**
+
+```{r, eval = FALSE }
+## Feature Selection
+
+start_mod = lm(price~1,data=data)
+empty_mod = lm(price~1,data=data)
+full_mod= lm(price ~ ., data=data)
+
+hybridStepwise = step(start_mod, scope = list(upper=full_mod, lower=empty_mod), direction='both')
+
+summary(hybridStepwise)
+```
+```{r, eval = FALSE}
+## Creating New Dataset with Imporatnt Variables 
+data2 = subset(data, select = c(price, desc_new, desc_located, desc_manhattan, desc_central, desc_heart, desc_large, desc_spacious, summary_midtown, summary_perfect, summary_modern, summary_spacious, name_townhouse, name_luxur, desc_penthouse, summary_large, desc_space, price_mean_zip, accommodates, neighbourhood_cleansed, price_mean_c, price_mean_gc,desc_luxur, Manhattan_dum,cleaning_fee, property_type, room_type, bedrooms, bathrooms, Name_williamsburg,Bronx_dum, desc_hospital, 
+Brooklyn_dum, maximum_nights, desc_cars, 
+availability_30, review_scores_rating, minimum_minimum_nights, desc_remodeled, desc_musicians, guests_included, number_of_reviews_ltm, host_is_superhost, review_scores_cleanliness, review_scores_value, Name_cozy, cancellation_policy, 
+is_location_exact, instant_bookable, availability_90, beds, 
+Amenities_laptop, summary_train, summary_subway, summary_manhattan, 
+Transit_train, summary_located, extra_people, minimum_nights_avg_ntm, 
+host_listings_count, security_deposit, Amenities_conditioning, 
+summary_park, summary_walk, Name_spacious, review_scores_location, 
+Amenities_kitchen, host_response_rate, reviews_per_month, 
+availability_60, review_scores_checkin, Name_park, minimum_nights, 
+summary_restaurants, require_guest_phone_verification, 
+Amenities_detector))
+
+## Apply the Same to Scoring Data
+```
+
+**(2) Linear Models ** 
+
+```{r, eval = FALSE}
+model_lm = lm(price ~., data = data2)
+summary(model_lm)
+```
+
+**(3) Random Forest Model**
+```{r, eval = FALSE}
+library(caret)
+library(randomForest)
+trControl = trainControl(method = 'cv', number = 5)
+tuneGrid = expand.grid(mtry = 1:3)
+set.seed(1031)
+forest = randomForest(price~., data=data2, ntree = 1000)
+summary(forest)
+```
+
+**(4) XG Boost Model**
+
+```{r, eval = FALSE}
+library(vtreat)
+
+data_input <- data2 %>% select(-price)
+price <- data2$price
+trt = designTreatmentsZ(dframe = data_input,
+                        varlist = names(data_input))
+
+
+newvars = trt$scoreFrame[trt$scoreFrame$code%in% c('clean','lev'),'varName']
+
+train_input = prepare(treatmentplan = trt, 
+                      dframe = data_input,
+                      varRestriction = newvars)
+test_input = prepare(treatmentplan = trt, 
+                     dframe = scoring2,
+                     varRestriction = newvars)
+
+library(xgboost); library(caret)
+set.seed(617)
+tune_nrounds = xgb.cv(data=as.matrix(train_input), 
+                      label = price,
+                      nrounds=250,
+                      nfold = 5,
+                      verbose = 0)
+
+which.min(tune_nrounds$evaluation_log$test_rmse_mean)
+#this will give value
+
+xgboost2= xgboost(data=as.matrix(train_input), 
+                  label = price,
+                  nrounds=85, #put it here
+                  verbose = 0)
+pred = predict(xgboost2, 
+               newdata=as.matrix(train_input))
+
+rmse_xgboost = sqrt(mean((pred - data2$price)^2)); rmse_xgboost
+pred = predict(xgboost2, #only for xg boost
+               newdata=as.matrix(test_input))
+
+```
+
+# 07. Results (RMSE)
+
+**Model 1: Linear Regression** <br>
+Score: 75.10471
+<br>
+**Model 2: Random Forest** <br>
+Score: 70.56314
+<br>
+**Model 3: XG Boost with text-minings** <br>
+Score: 63.63826
+<br>
+**Model 4: XG Boost with text-minings and group_mean values** <br>
+Score: 59.37100
+<br>
+
+
+
+# 08. Lessons Learned 
+
+**(1) Importance of Understanding the Data** <br>
+I realized that the most basic and one of the most important part before beginning the data analysis is to understand the what types of variables does the dataset contains. I put much of effort understanding the variables and pre-processing the data. Through this process, it was very helpful for me to understand what kind of variable I can use in predicting the value. Also, from cleaning the data, I was able to apply a lot of data-tidying codings and practice them. It was very helpful to learn and apply the data-tidying skills with the real-life coding practices.
+<br>
+
+**(2) Context Matters** <br>
+Data analysis always lies within the social context. Predicting the price of Airbnb house was no exceptions. The most basic part of data analysis is to catch and apply the understanding that (1) The district matters a lot in pricing, (2) Customers review that contains certain words such as "luxur","penthouse" also does matters. Even though the data contained lots of useful information, creating new variables such as mean_value by the region or text_mined dataset were very helpful to improve the overall scores. This was available as I tried to understand the context lied in New York City. 
+<br>
+
+**(3) Text-mining Skills**
+One of the most exciting part of this project was to learn the text-mininig skills and apply it to the real data analysis model. This was the mean of analyzing the written reviews. Some words extracted such as "penthouse" or "space" were useful to better predict the pricing. <Br>
+
+**- Area to Improve ** <br>
+Even though the text-mining skills were helpful, some limitations remained. I was not able to extract the top 20 words from the "description" and "space" variables as there were too many words contained. Also, I think I'd have been able to make much more accurate predictions if I extracted the words from the Top *N* priced units. To improve better, I am very interested in pursuing the NLP course. 
+<br>
+
+**(4) Understanding and Implying the Proper Models** <br>
+Applying different types of models was useful to understand the concept lied behind. When it comes to applying the models, it is very important to use different types of model in each situation, because each of the machine learning models has its own strength and weaknesses. Linear regression was helpful to understand which variables impact the most, but it was not appropriate to predict the prices. Random forest model helped to improve the prediction accuracy better than linear model, as the model takes into account the all the probability that each variable takes. Lastly, boosting model showed the best score as the model sequentially learns training error from every base learner.    
+
+**- Area to Improve ** <br>
+It took too much time to Feature Selection Model - almost waited half of the day to wait for the results. Instead, I might have been able to try Decision Tree with some tree controls and find the most important nodes using VarImportance function. <br>
+
+
+
